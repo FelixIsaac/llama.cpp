@@ -1,10 +1,10 @@
-name: Build macOS Attested (TurboQuant)
+name: Build macOS Attested (Moltes94)
 
 # ---------------------------------------------------------------------------
 # Architecture: mac-studio-private-inference-architecture-2026-06-18.md
 # Option C: GitHub Actions macOS runner as build host.
 #
-# Builds static arm64 llama.cpp binaries from atomic14/turboquant fork.
+# Builds static arm64 llama.cpp binaries from Moltes94/llama.cpp fork.
 # Produces SHA-256 attested artifacts for deployment to Mac Studio.
 # Signing identity and attestation secrets are NOT included here —
 # they are generated and stored separately on server-hm per the trust chain.
@@ -14,12 +14,12 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Git ref (branch/tag/commit) to build from atomic14/llama.cpp'
+        description: 'Git ref (branch/tag/commit) to build from Moltes94/llama.cpp'
         required: false
-        default: 'turboquant'
+        default: 'fix-recurrent-checkpoints'
   push:
     branches:
-      - turboquant
+      - fix-recurrent-checkpoints
     paths:
       - '**/CMakeLists.txt'
       - '**/*.h'
@@ -36,25 +36,25 @@ concurrency:
 
 jobs:
   build-macos-arm64-static:
-    name: macOS arm64 static (atomic14/turboquant)
+    name: macOS arm64 static (atomic14/fix-recurrent-checkpoints)
     runs-on: macos-latest
 
     steps:
       # -------------------------------------------------------------------
-      # Step 1: Checkout from the turboquant fork
+      # Step 1: Checkout from the fix-recurrent-checkpoints fork
       # -------------------------------------------------------------------
-      - name: Checkout atomic14/llama.cpp
+      - name: Checkout Moltes94/llama.cpp
         uses: actions/checkout@v6
         with:
-          repository: atomic14/llama.cpp
-          ref: ${{ inputs.ref || 'turboquant' }}
+          repository: Moltes94/llama.cpp
+          ref: ${{ inputs.ref || 'fix-recurrent-checkpoints' }}
           fetch-depth: 0
 
       - name: Record build provenance
         run: |
           echo "## Build Provenance"
-          echo "- Repository: atomic14/llama.cpp"
-          echo "- Ref: ${{ inputs.ref || 'turboquant' }}"
+          echo "- Repository: Moltes94/llama.cpp"
+          echo "- Ref: ${{ inputs.ref || 'fix-recurrent-checkpoints' }}"
           echo "- Commit: $(git rev-parse HEAD)"
           echo "- Commit date: $(git log -1 --format=%cI)"
           echo "- Runner: ${{ runner.os }} ${{ runner.arch }}"
@@ -121,7 +121,7 @@ jobs:
           cd dist
 
           {
-            echo "# macOS arm64 Static Binaries — llama.cpp (atomic14/turboquant)"
+            echo "# macOS arm64 Static Binaries — llama.cpp (atomic14/fix-recurrent-checkpoints)"
             echo "# Built on GitHub Actions macOS runner (${{ runner.os }} ${{ runner.arch }})"
             echo "#"
             echo "# INTEGRITY NOTE:"
@@ -130,8 +130,8 @@ jobs:
             echo "#   included in this artifact. Those are generated separately on server-hm."
             echo "#"
             echo "# Build Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "# Git Ref:    ${{ inputs.ref || 'turboquant' }}"
-            echo "# Repository: atomic14/llama.cpp"
+            echo "# Git Ref:    ${{ inputs.ref || 'fix-recurrent-checkpoints' }}"
+            echo "# Repository: Moltes94/llama.cpp"
             echo "# Commit:     $(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
             echo ""
             for f in llama-server llama-cli llama-quantize; do
@@ -149,12 +149,12 @@ jobs:
       #
       # Artifact contains: stripped static binaries + SHA256SUMS.
       # Download from GitHub Actions UI or via gh CLI:
-      #   gh run download -n llama-turboquant-macos-arm64-static
+      #   gh run download -n llama-fix-recurrent-checkpoints-macos-arm64-static
       # -------------------------------------------------------------------
       - name: Upload attested binaries
         uses: actions/upload-artifact@v6
         with:
-          name: llama-turboquant-macos-arm64-static
+          name: llama-fix-recurrent-checkpoints-macos-arm64-static
           path: |
             dist/llama-server
             dist/llama-cli
@@ -169,15 +169,15 @@ jobs:
         if: always()
         run: |
           {
-            echo "## 🍎 macOS Attested Build — TurboQuant"
+            echo "## 🍎 macOS Attested Build — Moltes94"
             echo ""
             echo "| Field | Value |"
             echo "|-------|-------|"
-            echo "| Repository | atomic14/llama.cpp |"
-            echo "| Ref | ${{ inputs.ref || 'turboquant' }} |"
+            echo "| Repository | Moltes94/llama.cpp |"
+            echo "| Ref | ${{ inputs.ref || 'fix-recurrent-checkpoints' }} |"
             echo "| Commit | $(git -C "$GITHUB_WORKSPACE" rev-parse HEAD 2>/dev/null || echo 'N/A') |"
             echo "| Runner | ${{ runner.os }} ${{ runner.arch }} |"
-            echo "| Artifact | llama-turboquant-macos-arm64-static |"
+            echo "| Artifact | llama-fix-recurrent-checkpoints-macos-arm64-static |"
             echo ""
             if [ -f dist/SHA256SUMS ]; then
               echo "### SHA-256 Checksums"
