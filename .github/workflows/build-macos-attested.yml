@@ -1,0 +1,188 @@
+name: Build macOS Attested (TurboQuant)
+
+# ---------------------------------------------------------------------------
+# Architecture: mac-studio-private-inference-architecture-2026-06-18.md
+# Option C: GitHub Actions macOS runner as build host.
+#
+# Builds static arm64 llama.cpp binaries from atomic14/turboquant fork.
+# Produces SHA-256 attested artifacts for deployment to Mac Studio.
+# Signing identity and attestation secrets are NOT included here —
+# they are generated and stored separately on server-hm per the trust chain.
+# ---------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref (branch/tag/commit) to build from atomic14/llama.cpp'
+        required: false
+        default: 'turboquant'
+  push:
+    branches:
+      - turboquant
+    paths:
+      - '**/CMakeLists.txt'
+      - '**/*.h'
+      - '**/*.hpp'
+      - '**/*.c'
+      - '**/*.cpp'
+      - '**/*.m'
+      - '**/*.metal'
+      - '.github/workflows/build-macos-attested.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos-arm64-static:
+    name: macOS arm64 static (atomic14/turboquant)
+    runs-on: macos-latest
+
+    steps:
+      # -------------------------------------------------------------------
+      # Step 1: Checkout from the turboquant fork
+      # -------------------------------------------------------------------
+      - name: Checkout atomic14/llama.cpp
+        uses: actions/checkout@v6
+        with:
+          repository: atomic14/llama.cpp
+          ref: ${{ inputs.ref || 'turboquant' }}
+          fetch-depth: 0
+
+      - name: Record build provenance
+        run: |
+          echo "## Build Provenance"
+          echo "- Repository: atomic14/llama.cpp"
+          echo "- Ref: ${{ inputs.ref || 'turboquant' }}"
+          echo "- Commit: $(git rev-parse HEAD)"
+          echo "- Commit date: $(git log -1 --format=%cI)"
+          echo "- Runner: ${{ runner.os }} ${{ runner.arch }}"
+          echo "- Triggered: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      # -------------------------------------------------------------------
+      # Step 2: Build static arm64 binaries
+      #
+      # Architecture requirements (Layer 0c, Layer 2, Layer 8):
+      #   - Apple clang (default on GitHub macOS runner)
+      #   - Metal shaders pre-compiled + embedded (GGML_METAL_EMBED_LIBRARY)
+      #   - BoringSSL for TLS 1.3 / mTLS (LLAMA_BUILD_BORINGSSL)
+      #   - Static linking (BUILD_SHARED_LIBS=OFF)
+      #   - Stripped symbols (strip -S -x, per Layer 2)
+      # -------------------------------------------------------------------
+      - name: Build static arm64 binaries
+        run: |
+          set -euo pipefail
+
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_BUILD_RPATH="@loader_path" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DGGML_METAL=ON \
+            -DGGML_METAL_EMBED_LIBRARY=ON \
+            -DGGML_METAL_USE_BF16=ON \
+            -DGGML_METAL_SHADER_DEBUG=OFF \
+            -DLLAMA_BUILD_BORINGSSL=ON
+
+          cmake --build build --config Release -j "$(sysctl -n hw.logicalcpu)"
+
+          # Post-build audit (per Layer 8 supply chain integrity)
+          echo "=== Linkage audit (expected: only system + Metal libraries) ==="
+          otool -L build/bin/llama-server || true
+
+          echo "=== Metal symbols (expected: embedded .metallib) ==="
+          nm build/bin/llama-server | grep -i metal || echo "(Metal symbols stripped or embedded — expected)"
+
+          # Strip symbols (Layer 2: hides stack frames / hinders unwinding)
+          echo "=== Stripping symbols ==="
+          strip -S -x build/bin/llama-server
+          strip -S -x build/bin/llama-cli
+
+          # Package for artifact upload
+          mkdir -p dist
+          cp build/bin/llama-server  dist/
+          cp build/bin/llama-cli     dist/
+          cp build/bin/llama-quantize dist/
+
+          echo "=== Dist contents ==="
+          ls -lh dist/
+
+      # -------------------------------------------------------------------
+      # Step 3: SHA-256 integrity checksums
+      #
+      # These hashes are the known-good reference that the client
+      # (server-hm / Felix's laptop) compares against before deployment.
+      # Signing identity and attestation secrets are generated separately
+      # on server-hm — never included in this workflow or artifact.
+      # -------------------------------------------------------------------
+      - name: Generate SHA-256 checksums
+        run: |
+          cd dist
+
+          {
+            echo "# macOS arm64 Static Binaries — llama.cpp (atomic14/turboquant)"
+            echo "# Built on GitHub Actions macOS runner (${{ runner.os }} ${{ runner.arch }})"
+            echo "#"
+            echo "# INTEGRITY NOTE:"
+            echo "#   These hashes are the known-good reference. Compare before SCP to Mac Studio."
+            echo "#   No signing identity, attestation secret, mTLS cert, or crypto material is"
+            echo "#   included in this artifact. Those are generated separately on server-hm."
+            echo "#"
+            echo "# Build Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "# Git Ref:    ${{ inputs.ref || 'turboquant' }}"
+            echo "# Repository: atomic14/llama.cpp"
+            echo "# Commit:     $(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+            echo ""
+            for f in llama-server llama-cli llama-quantize; do
+              if [ -f "$f" ]; then
+                shasum -a 256 "$f"
+              fi
+            done
+          } > SHA256SUMS
+
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+
+      # -------------------------------------------------------------------
+      # Step 4: Upload artifact
+      #
+      # Artifact contains: stripped static binaries + SHA256SUMS.
+      # Download from GitHub Actions UI or via gh CLI:
+      #   gh run download -n llama-turboquant-macos-arm64-static
+      # -------------------------------------------------------------------
+      - name: Upload attested binaries
+        uses: actions/upload-artifact@v6
+        with:
+          name: llama-turboquant-macos-arm64-static
+          path: |
+            dist/llama-server
+            dist/llama-cli
+            dist/llama-quantize
+            dist/SHA256SUMS
+          retention-days: 30
+
+      # -------------------------------------------------------------------
+      # Step 5: Job summary
+      # -------------------------------------------------------------------
+      - name: Build summary
+        if: always()
+        run: |
+          {
+            echo "## 🍎 macOS Attested Build — TurboQuant"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Repository | atomic14/llama.cpp |"
+            echo "| Ref | ${{ inputs.ref || 'turboquant' }} |"
+            echo "| Commit | $(git -C "$GITHUB_WORKSPACE" rev-parse HEAD 2>/dev/null || echo 'N/A') |"
+            echo "| Runner | ${{ runner.os }} ${{ runner.arch }} |"
+            echo "| Artifact | llama-turboquant-macos-arm64-static |"
+            echo ""
+            if [ -f dist/SHA256SUMS ]; then
+              echo "### SHA-256 Checksums"
+              echo '```'
+              cat dist/SHA256SUMS
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
