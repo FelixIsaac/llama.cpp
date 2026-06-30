@@ -149,12 +149,12 @@ jobs:
       #
       # Artifact contains: stripped static binaries + SHA256SUMS.
       # Download from GitHub Actions UI or via gh CLI:
-      #   gh run download -n llama-fix/rocm-recurrent-checkpoints-macos-arm64-static
+      #   gh run download -n llama-moltes94-macos-arm64-static
       # -------------------------------------------------------------------
       - name: Upload attested binaries
         uses: actions/upload-artifact@v6
         with:
-          name: llama-fix/rocm-recurrent-checkpoints-macos-arm64-static
+          name: llama-moltes94-macos-arm64-static
           path: |
             dist/llama-server
             dist/llama-cli
@@ -177,7 +177,7 @@ jobs:
             echo "| Ref | ${{ inputs.ref || 'fix/rocm-recurrent-checkpoints' }} |"
             echo "| Commit | $(git -C "$GITHUB_WORKSPACE" rev-parse HEAD 2>/dev/null || echo 'N/A') |"
             echo "| Runner | ${{ runner.os }} ${{ runner.arch }} |"
-            echo "| Artifact | llama-fix/rocm-recurrent-checkpoints-macos-arm64-static |"
+            echo "| Artifact | llama-moltes94-macos-arm64-static |"
             echo ""
             if [ -f dist/SHA256SUMS ]; then
               echo "### SHA-256 Checksums"
